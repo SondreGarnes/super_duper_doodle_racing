@@ -61,7 +61,7 @@ export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
 
   const roadMesh = new THREE.Mesh(
     roadGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x444444 })
+    new THREE.MeshStandardMaterial({ color: 0x444444, side: THREE.DoubleSide })
   );
   scene.add(roadMesh);
 

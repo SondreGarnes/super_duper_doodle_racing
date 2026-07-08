@@ -5,7 +5,9 @@ const CHASSIS_HALF_EXTENTS = { x: 0.9, y: 0.4, z: 2.0 };
 const WHEEL_RADIUS = 0.4;
 const WHEEL_HALF_WIDTH = 0.2;
 const SUSPENSION_REST_LENGTH = 0.35;
-const MAX_ENGINE_FORCE = 1800;
+// Keeps peak acceleration under ~1/3 g (500N / 150kg chassis) so the rear-wheel-drive
+// torque doesn't pitch the nose up and lift the front wheels off the ground (a "wheelie").
+const MAX_ENGINE_FORCE = 500;
 const MAX_STEER_ANGLE = 0.5;
 const MAX_BRAKE_FORCE = 40;
 
@@ -14,11 +16,13 @@ interface WheelDef {
   isFront: boolean;
 }
 
+// The vehicle controller's engine force drives the chassis along its local +Z axis,
+// so the steering (front) wheels must lead at +Z and the driven (rear) wheels trail at -Z.
 const WHEEL_DEFS: WheelDef[] = [
-  { position: { x: -CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: true },
-  { position: { x: CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: true },
-  { position: { x: -CHASSIS_HALF_EXTENTS.x, y: -0.2, z: 1.4 }, isFront: false },
-  { position: { x: CHASSIS_HALF_EXTENTS.x, y: -0.2, z: 1.4 }, isFront: false },
+  { position: { x: -CHASSIS_HALF_EXTENTS.x, y: -0.2, z: 1.4 }, isFront: true },
+  { position: { x: CHASSIS_HALF_EXTENTS.x, y: -0.2, z: 1.4 }, isFront: true },
+  { position: { x: -CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: false },
+  { position: { x: CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: false },
 ];
 
 export class Car {
@@ -31,14 +35,16 @@ export class Car {
   constructor(
     scene: THREE.Scene,
     world: RAPIER.World,
-    startPos: { x: number; y: number; z: number }
+    startPos: { x: number; y: number; z: number },
+    startRotation: { x: number; y: number; z: number; w: number } = { x: 0, y: 0, z: 0, w: 1 }
   ) {
     this.world = world;
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(startPos.x, startPos.y, startPos.z)
+      .setRotation(startRotation)
       .setLinearDamping(0.1)
-      .setAngularDamping(0.5);
+      .setAngularDamping(1.5);
     this.chassisBody = world.createRigidBody(bodyDesc);
 
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
