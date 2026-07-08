@@ -4,20 +4,34 @@ import RAPIER from '@dimforge/rapier3d-compat';
 const ROAD_WIDTH = 8;
 const ROAD_POINTS: THREE.Vector3[] = [
   new THREE.Vector3(0, 0, 0),
-  new THREE.Vector3(30, 0, -10),
-  new THREE.Vector3(50, 0, -40),
-  new THREE.Vector3(30, 0, -70),
-  new THREE.Vector3(-10, 0, -80),
-  new THREE.Vector3(-40, 0, -55),
-  new THREE.Vector3(-40, 0, -15),
-  new THREE.Vector3(-15, 0, 10),
+  new THREE.Vector3(45, 0, 2),
+  new THREE.Vector3(90, 0, 0),
+  new THREE.Vector3(125, 0, -20),
+  new THREE.Vector3(145, 0, -55),
+  new THREE.Vector3(140, 0, -95),
+  new THREE.Vector3(110, 0, -125),
+  new THREE.Vector3(65, 0, -135),
+  new THREE.Vector3(25, 0, -115),
+  new THREE.Vector3(10, 0, -85),
+  new THREE.Vector3(35, 0, -60),
+  new THREE.Vector3(15, 0, -30),
+  new THREE.Vector3(-25, 0, -20),
+  new THREE.Vector3(-65, 0, -35),
+  new THREE.Vector3(-100, 0, -65),
+  new THREE.Vector3(-120, 0, -100),
+  new THREE.Vector3(-110, 0, -140),
+  new THREE.Vector3(-70, 0, -155),
+  new THREE.Vector3(-25, 0, -140),
+  new THREE.Vector3(-5, 0, -100),
+  new THREE.Vector3(-15, 0, -50),
+  new THREE.Vector3(-20, 0, -20),
 ];
 
 export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
   const curve = new THREE.CatmullRomCurve3(ROAD_POINTS, true, 'catmullrom', 0.5);
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 400),
+    new THREE.PlaneGeometry(900, 900),
     new THREE.MeshStandardMaterial({ color: 0x3a5f3a })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -26,7 +40,7 @@ export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
 
   const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   world.createCollider(
-    RAPIER.ColliderDesc.cuboid(200, 0.05, 200).setTranslation(0, -0.1, 0),
+    RAPIER.ColliderDesc.cuboid(450, 0.05, 450).setTranslation(0, -0.1, 0),
     groundBody
   );
 

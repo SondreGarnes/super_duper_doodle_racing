@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 
 const BUILDING_COLORS = [0xe07a5f, 0xf2cc8f, 0x81b29a, 0x3d405b];
-const PROP_COUNT = 40;
+const PROP_COUNT = 110;
 const OFFSET_RANGE = [10, 25];
 
 export function createScenery(
