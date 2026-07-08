@@ -1,15 +1,29 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { engineForceForSpeed, steerAngleForSpeed } from './vehicleTuning';
 
 const CHASSIS_HALF_EXTENTS = { x: 0.9, y: 0.4, z: 2.0 };
+const CHASSIS_MASS = 150;
 const WHEEL_RADIUS = 0.4;
 const WHEEL_HALF_WIDTH = 0.2;
 const SUSPENSION_REST_LENGTH = 0.35;
-// Keeps peak acceleration under ~1/3 g (500N / 150kg chassis) so the rear-wheel-drive
-// torque doesn't pitch the nose up and lift the front wheels off the ground (a "wheelie").
-const MAX_ENGINE_FORCE = 500;
-const MAX_STEER_ANGLE = 0.5;
 const MAX_BRAKE_FORCE = 40;
+
+// Lowers the effective center of mass below the chassis's geometric center (toward
+// where an engine/battery pack would sit), reducing body roll and wheelie tendency.
+const CENTER_OF_MASS_OFFSET = { x: 0, y: -0.35, z: 0 };
+// Box inertia tensor approximated about the geometric center (not recomputed for the
+// shifted center of mass) — close enough for game-feel purposes, not a rigorous sim.
+const PRINCIPAL_ANGULAR_INERTIA = {
+  x: (CHASSIS_MASS / 3) * (CHASSIS_HALF_EXTENTS.y ** 2 + CHASSIS_HALF_EXTENTS.z ** 2),
+  y: (CHASSIS_MASS / 3) * (CHASSIS_HALF_EXTENTS.x ** 2 + CHASSIS_HALF_EXTENTS.z ** 2),
+  z: (CHASSIS_MASS / 3) * (CHASSIS_HALF_EXTENTS.x ** 2 + CHASSIS_HALF_EXTENTS.y ** 2),
+};
+
+// Opposing-velocity resistance applied each physics step, so top speed levels off
+// naturally and coasting decelerates realistically instead of relying only on damping.
+const ROLLING_RESISTANCE_COEFF = 6; // N per (m/s)
+const DRAG_COEFF = 0.5; // N per (m/s)^2
 
 interface WheelDef {
   position: RAPIER.Vector3;
@@ -24,6 +38,12 @@ const WHEEL_DEFS: WheelDef[] = [
   { position: { x: -CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: false },
   { position: { x: CHASSIS_HALF_EXTENTS.x, y: -0.2, z: -1.4 }, isFront: false },
 ];
+
+const FRONT_SUSPENSION_STIFFNESS = 28;
+const REAR_SUSPENSION_STIFFNESS = 22;
+const FRONT_FRICTION_SLIP = 3.0;
+const REAR_FRICTION_SLIP = 2.6;
+const MAX_SUSPENSION_TRAVEL = 0.3;
 
 export class Car {
   chassisMesh: THREE.Group;
@@ -44,14 +64,20 @@ export class Car {
       .setTranslation(startPos.x, startPos.y, startPos.z)
       .setRotation(startRotation)
       .setLinearDamping(0.1)
-      .setAngularDamping(1.5);
+      .setAngularDamping(1.5)
+      .setAdditionalMassProperties(
+        CHASSIS_MASS,
+        CENTER_OF_MASS_OFFSET,
+        PRINCIPAL_ANGULAR_INERTIA,
+        { x: 0, y: 0, z: 0, w: 1 }
+      );
     this.chassisBody = world.createRigidBody(bodyDesc);
 
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       CHASSIS_HALF_EXTENTS.x,
       CHASSIS_HALF_EXTENTS.y,
       CHASSIS_HALF_EXTENTS.z
-    ).setMass(150);
+    ).setDensity(0);
     world.createCollider(colliderDesc, this.chassisBody);
 
     this.vehicle = world.createVehicleController(this.chassisBody);
@@ -69,9 +95,13 @@ export class Car {
     }
 
     for (let i = 0; i < WHEEL_DEFS.length; i++) {
-      this.vehicle.setWheelSuspensionStiffness(i, 24);
-      this.vehicle.setWheelMaxSuspensionTravel(i, 0.3);
-      this.vehicle.setWheelFrictionSlip(i, 2.5);
+      const isFront = WHEEL_DEFS[i].isFront;
+      this.vehicle.setWheelSuspensionStiffness(
+        i,
+        isFront ? FRONT_SUSPENSION_STIFFNESS : REAR_SUSPENSION_STIFFNESS
+      );
+      this.vehicle.setWheelMaxSuspensionTravel(i, MAX_SUSPENSION_TRAVEL);
+      this.vehicle.setWheelFrictionSlip(i, isFront ? FRONT_FRICTION_SLIP : REAR_FRICTION_SLIP);
     }
 
     this.chassisMesh = new THREE.Group();
@@ -98,9 +128,10 @@ export class Car {
   }
 
   applyInput(input: { throttle: number; brake: number; steer: number; handbrake: boolean }): void {
-    const engineForce = input.throttle * MAX_ENGINE_FORCE;
+    const currentSpeed = this.vehicle.currentVehicleSpeed();
+    const engineForce = engineForceForSpeed(currentSpeed, input.throttle);
     const brakeForce = input.brake * MAX_BRAKE_FORCE;
-    const steerAngle = input.steer * MAX_STEER_ANGLE;
+    const steerAngle = steerAngleForSpeed(currentSpeed, input.steer);
 
     for (let i = 0; i < WHEEL_DEFS.length; i++) {
       const def = WHEEL_DEFS[i];
@@ -110,6 +141,28 @@ export class Car {
         this.vehicle.setWheelSteering(i, steerAngle);
       }
     }
+  }
+
+  applyResistance(dt: number): void {
+    const vel = this.chassisBody.linvel();
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < 1e-4) return;
+
+    const resistanceForce = ROLLING_RESISTANCE_COEFF * speed + DRAG_COEFF * speed * speed;
+    const impulseMag = -resistanceForce * dt;
+    const dirX = vel.x / speed;
+    const dirZ = vel.z / speed;
+    this.chassisBody.applyImpulse({ x: dirX * impulseMag, y: 0, z: dirZ * impulseMag }, true);
+  }
+
+  reset(position: THREE.Vector3, quaternion: THREE.Quaternion): void {
+    this.chassisBody.setTranslation({ x: position.x, y: position.y, z: position.z }, true);
+    this.chassisBody.setRotation(
+      { x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w },
+      true
+    );
+    this.chassisBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.chassisBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
   update(): void {
