@@ -89,3 +89,13 @@ export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
 
   return { curve };
 }
+
+export function getSpawnTransform(curve: THREE.CatmullRomCurve3): {
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+} {
+  const point = curve.getPointAt(0);
+  const tangent = curve.getTangentAt(0);
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+  return { position: new THREE.Vector3(point.x, point.y + 1, point.z), quaternion };
+}

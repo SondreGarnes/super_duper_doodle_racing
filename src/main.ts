@@ -1,11 +1,13 @@
-import * as THREE from 'three';
 import { createScene } from './scene';
 import { createPhysicsWorld, FixedTimestepAccumulator } from './physics';
-import { createRoad } from './world/road';
+import { createRoad, getSpawnTransform } from './world/road';
 import { createScenery } from './world/scenery';
+import { getTrackProgress } from './world/trackProgress';
 import { InputState } from './car/input';
 import { Car } from './car/car';
 import { ChaseCamera } from './camera/chaseCamera';
+import { LapTimer } from './game/lapTimer';
+import { TimerDisplay } from './ui/timerDisplay';
 
 const FIXED_DT = 1 / 60;
 
@@ -16,27 +18,21 @@ async function main() {
   const { curve } = createRoad(scene, world);
   createScenery(scene, world, curve);
 
-  // The vehicle's engine drives it along its local +Z axis, so align spawn rotation
-  // with the road's initial tangent to avoid launching the car off the road.
-  const spawnPoint = curve.getPointAt(0);
-  const spawnTangent = curve.getTangentAt(0);
-  const spawnQuaternion = new THREE.Quaternion().setFromUnitVectors(
-    new THREE.Vector3(0, 0, 1),
-    spawnTangent
-  );
-
+  const spawn = getSpawnTransform(curve);
   const car = new Car(
     scene,
     world,
-    { x: spawnPoint.x, y: spawnPoint.y + 1, z: spawnPoint.z },
-    { x: spawnQuaternion.x, y: spawnQuaternion.y, z: spawnQuaternion.z, w: spawnQuaternion.w }
+    { x: spawn.position.x, y: spawn.position.y, z: spawn.position.z },
+    { x: spawn.quaternion.x, y: spawn.quaternion.y, z: spawn.quaternion.z, w: spawn.quaternion.w }
   );
   const input = new InputState();
   const chaseCamera = new ChaseCamera(camera, car.getChassisWorldPosition());
   const accumulator = new FixedTimestepAccumulator(FIXED_DT);
+  const lapTimer = new LapTimer();
+  const timerDisplay = new TimerDisplay();
 
   // @ts-expect-error debug hook for manual/automated verification, not part of the public API
-  window.__debug = { car, camera, scene, curve, world };
+  window.__debug = { car, camera, scene, curve, world, lapTimer };
 
   let lastTime = performance.now();
 
@@ -47,13 +43,27 @@ async function main() {
 
     input.update();
 
+    if (input.resetPressed) {
+      car.reset(spawn.position, spawn.quaternion);
+      lapTimer.reset();
+    }
+
+    if (!lapTimer.isFinished() && (input.throttle > 0 || input.brake > 0)) {
+      lapTimer.start(now);
+    }
+
     accumulator.tick(deltaSeconds, () => {
       car.applyInput(input);
+      car.applyResistance(FIXED_DT);
       world.step();
     });
 
     car.update();
     chaseCamera.update(car.getChassisWorldPosition(), car.getChassisWorldQuaternion(), deltaSeconds);
+
+    const progress = getTrackProgress(curve, car.getChassisWorldPosition());
+    lapTimer.update(now, progress);
+    timerDisplay.update(lapTimer.getElapsedMs(now), lapTimer.isFinished());
 
     renderer.render(scene, camera);
   }

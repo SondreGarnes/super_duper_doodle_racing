@@ -3,11 +3,16 @@ export class InputState {
   brake = 0;
   steer = 0;
   handbrake = false;
+  resetPressed = false;
 
   private keys = new Set<string>();
+  private resetQueued = false;
 
   constructor() {
-    window.addEventListener('keydown', (e) => this.keys.add(e.code));
+    window.addEventListener('keydown', (e) => {
+      this.keys.add(e.code);
+      if (e.code === 'KeyR') this.resetQueued = true;
+    });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
   }
 
@@ -21,5 +26,8 @@ export class InputState {
     this.brake = backward ? 1 : 0;
     this.steer = (left ? 1 : 0) - (right ? 1 : 0);
     this.handbrake = this.keys.has('Space');
+
+    this.resetPressed = this.resetQueued;
+    this.resetQueued = false;
   }
 }
