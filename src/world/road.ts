@@ -32,10 +32,11 @@ export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(900, 900),
-    new THREE.MeshStandardMaterial({ color: 0x3a5f3a })
+    new THREE.MeshStandardMaterial({ color: 0x3a5f3a, roughness: 1, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
+  ground.receiveShadow = true;
   scene.add(ground);
 
   const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
@@ -75,8 +76,14 @@ export function createRoad(scene: THREE.Scene, world: RAPIER.World) {
 
   const roadMesh = new THREE.Mesh(
     roadGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x444444, side: THREE.DoubleSide })
+    new THREE.MeshStandardMaterial({
+      color: 0x444444,
+      side: THREE.DoubleSide,
+      roughness: 0.9,
+      metalness: 0,
+    })
   );
+  roadMesh.receiveShadow = true;
   scene.add(roadMesh);
 
   const roadBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());

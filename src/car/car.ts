@@ -111,17 +111,20 @@ export class Car {
         CHASSIS_HALF_EXTENTS.y * 2,
         CHASSIS_HALF_EXTENTS.z * 2
       ),
-      new THREE.MeshStandardMaterial({ color: 0xdd2222 })
+      new THREE.MeshStandardMaterial({ color: 0xdd2222, roughness: 0.4, metalness: 0.3 })
     );
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
     this.chassisMesh.add(bodyMesh);
     scene.add(this.chassisMesh);
 
     for (const def of WHEEL_DEFS) {
       const wheelMesh = new THREE.Mesh(
         new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_HALF_WIDTH * 2, 16),
-        new THREE.MeshStandardMaterial({ color: 0x111111 })
+        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, metalness: 0.1 })
       );
       wheelMesh.rotation.z = Math.PI / 2;
+      wheelMesh.castShadow = true;
       scene.add(wheelMesh);
       this.wheelMeshes.push(wheelMesh);
     }

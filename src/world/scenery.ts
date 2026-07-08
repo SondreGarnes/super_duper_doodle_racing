@@ -27,9 +27,13 @@ export function createScenery(
       new THREE.BoxGeometry(width, height, depth),
       new THREE.MeshStandardMaterial({
         color: BUILDING_COLORS[i % BUILDING_COLORS.length],
+        roughness: 0.7,
+        metalness: 0.05,
       })
     );
     mesh.position.set(position.x, height / 2, position.z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     scene.add(mesh);
 
     const body = world.createRigidBody(
