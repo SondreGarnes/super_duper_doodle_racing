@@ -4,14 +4,20 @@ export class InputState {
   steer = 0;
   handbrake = false;
   resetPressed = false;
+  leaderboardTogglePressed = false;
+  mutePressed = false;
 
   private keys = new Set<string>();
   private resetQueued = false;
+  private leaderboardToggleQueued = false;
+  private muteQueued = false;
 
   constructor() {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code);
       if (e.code === 'KeyR') this.resetQueued = true;
+      if (e.code === 'KeyL') this.leaderboardToggleQueued = true;
+      if (e.code === 'KeyM') this.muteQueued = true;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
   }
@@ -29,5 +35,9 @@ export class InputState {
 
     this.resetPressed = this.resetQueued;
     this.resetQueued = false;
+    this.leaderboardTogglePressed = this.leaderboardToggleQueued;
+    this.leaderboardToggleQueued = false;
+    this.mutePressed = this.muteQueued;
+    this.muteQueued = false;
   }
 }

@@ -12,7 +12,7 @@ export class LapTimer {
     this.startTimeMs = nowMs;
   }
 
-  update(nowMs: number, progress: number): void {
+  update(nowMs: number, progress: number, checkpointsComplete = true): void {
     if (this.startTimeMs === null || this.finishTimeMs !== null) return;
 
     if (progress > this.maxProgressSeen) {
@@ -23,7 +23,7 @@ export class LapTimer {
     const hasWrappedToStart = progress <= START_PROGRESS_THRESHOLD;
     const coveredEnoughDistance = this.maxProgressSeen >= MIN_PROGRESS_BEFORE_FINISH;
 
-    if (hasReachedNearEnd && hasWrappedToStart && coveredEnoughDistance) {
+    if (hasReachedNearEnd && hasWrappedToStart && coveredEnoughDistance && checkpointsComplete) {
       this.finishTimeMs = nowMs;
     }
   }

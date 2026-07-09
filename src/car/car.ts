@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { engineForceForSpeed, steerAngleForSpeed } from './vehicleTuning';
+import { driveCommandForInput, steerAngleForSpeed } from './vehicleTuning';
+import { createVolvoBody, setBoostGlow } from './volvoBody';
 
 const CHASSIS_HALF_EXTENTS = { x: 0.9, y: 0.4, z: 2.0 };
 const CHASSIS_MASS = 150;
@@ -45,12 +46,20 @@ const FRONT_FRICTION_SLIP = 3.0;
 const REAR_FRICTION_SLIP = 2.6;
 const MAX_SUSPENSION_TRAVEL = 0.3;
 
+// Drift mode: rear tires lose most grip so the tail slides, with just a touch of
+// rear brake to help rotate. Boost force is strong enough to beat the drag ceiling.
+const DRIFT_REAR_FRICTION_SLIP = 1.3;
+const DRIFT_REAR_BRAKE = 0;
+const BOOST_FORCE = 1400;
+
 export class Car {
   chassisMesh: THREE.Group;
   private wheelMeshes: THREE.Mesh[] = [];
   private chassisBody: RAPIER.RigidBody;
   private vehicle: RAPIER.DynamicRayCastVehicleController;
   private world: RAPIER.World;
+  private boostGlowMaterial!: THREE.MeshStandardMaterial;
+  private wasDrifting = false;
 
   constructor(
     scene: THREE.Scene,
@@ -105,24 +114,32 @@ export class Car {
     }
 
     this.chassisMesh = new THREE.Group();
-    const bodyMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(
-        CHASSIS_HALF_EXTENTS.x * 2,
-        CHASSIS_HALF_EXTENTS.y * 2,
-        CHASSIS_HALF_EXTENTS.z * 2
-      ),
-      new THREE.MeshStandardMaterial({ color: 0xdd2222, roughness: 0.4, metalness: 0.3 })
-    );
-    bodyMesh.castShadow = true;
-    bodyMesh.receiveShadow = true;
-    this.chassisMesh.add(bodyMesh);
+    const { group: volvoBody, boostGlow } = createVolvoBody();
+    this.boostGlowMaterial = boostGlow;
+    this.chassisMesh.add(volvoBody);
     scene.add(this.chassisMesh);
 
+    const tireMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.8,
+      metalness: 0.1,
+    });
+    const hubcapMaterial = new THREE.MeshStandardMaterial({
+      color: 0xc8ccd4,
+      roughness: 0.3,
+      metalness: 0.85,
+    });
     for (const def of WHEEL_DEFS) {
       const wheelMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_HALF_WIDTH * 2, 16),
-        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, metalness: 0.1 })
+        new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_HALF_WIDTH * 2, 20),
+        tireMaterial
       );
+      // Classic Volvo steelie: a flat silver disc inset into the tire.
+      const hubcap = new THREE.Mesh(
+        new THREE.CylinderGeometry(WHEEL_RADIUS * 0.55, WHEEL_RADIUS * 0.55, WHEEL_HALF_WIDTH * 2 + 0.02, 14),
+        hubcapMaterial
+      );
+      wheelMesh.add(hubcap);
       wheelMesh.rotation.z = Math.PI / 2;
       wheelMesh.castShadow = true;
       scene.add(wheelMesh);
@@ -130,20 +147,90 @@ export class Car {
     }
   }
 
-  applyInput(input: { throttle: number; brake: number; steer: number; handbrake: boolean }): void {
-    const currentSpeed = this.vehicle.currentVehicleSpeed();
-    const engineForce = engineForceForSpeed(currentSpeed, input.throttle);
-    const brakeForce = input.brake * MAX_BRAKE_FORCE;
-    const steerAngle = steerAngleForSpeed(currentSpeed, input.steer);
+  applyInput(
+    input: { throttle: number; brake: number; steer: number; handbrake: boolean },
+    drifting = false
+  ): void {
+    const currentSpeed = this.getSignedSpeed();
+    const { engineForce, brakeForce } = driveCommandForInput(
+      currentSpeed,
+      input.throttle,
+      input.brake
+    );
+    // Softer steering during a drift keeps it a controlled slide instead of a spin.
+    const steerAngle = steerAngleForSpeed(currentSpeed, input.steer) * (drifting ? 0.55 : 1);
+
+    // Only touch wheel friction on drift transitions; rewriting it every step
+    // disturbs the vehicle controller's contact state and costs traction.
+    if (drifting !== this.wasDrifting) {
+      this.wasDrifting = drifting;
+      for (let i = 0; i < WHEEL_DEFS.length; i++) {
+        if (WHEEL_DEFS[i].isFront) continue;
+        // Mario Kart drift: rear end goes loose but keeps driving instead of locking up.
+        this.vehicle.setWheelFrictionSlip(i, drifting ? DRIFT_REAR_FRICTION_SLIP : REAR_FRICTION_SLIP);
+      }
+    }
 
     for (let i = 0; i < WHEEL_DEFS.length; i++) {
       const def = WHEEL_DEFS[i];
       this.vehicle.setWheelEngineForce(i, def.isFront ? 0 : engineForce);
-      this.vehicle.setWheelBrake(i, input.handbrake && !def.isFront ? MAX_BRAKE_FORCE : brakeForce);
+      if (drifting) {
+        this.vehicle.setWheelBrake(i, def.isFront ? brakeForce : DRIFT_REAR_BRAKE);
+      } else {
+        this.vehicle.setWheelBrake(i, input.handbrake && !def.isFront ? MAX_BRAKE_FORCE : brakeForce);
+      }
       if (def.isFront) {
         this.vehicle.setWheelSteering(i, steerAngle);
       }
     }
+  }
+
+  // Extra forward push while a drift boost is active, applied along the chassis heading.
+  applyBoost(dt: number): void {
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.chassisMesh.quaternion);
+    const impulse = BOOST_FORCE * dt;
+    this.chassisBody.applyImpulse(
+      { x: forward.x * impulse, y: 0, z: forward.z * impulse },
+      true
+    );
+  }
+
+  // Forward speed with a reliable sign (velocity projected onto the chassis heading);
+  // Rapier's currentVehicleSpeed() sign is unstable at low speeds.
+  getSignedSpeed(): number {
+    const vel = this.chassisBody.linvel();
+    const rot = this.chassisBody.rotation();
+    const forwardX = 2 * (rot.x * rot.z + rot.w * rot.y);
+    const forwardZ = 1 - 2 * (rot.x * rot.x + rot.y * rot.y);
+    return vel.x * forwardX + vel.z * forwardZ;
+  }
+
+  // Chassis forward direction projected onto the ground plane.
+  getForwardXZ(): { x: number; z: number } {
+    const rot = this.chassisBody.rotation();
+    return {
+      x: 2 * (rot.x * rot.z + rot.w * rot.y),
+      z: 1 - 2 * (rot.x * rot.x + rot.y * rot.y),
+    };
+  }
+
+  setBoosting(boosting: boolean): void {
+    setBoostGlow(this.boostGlowMaterial, boosting);
+  }
+
+  // Rear wheel contact-patch positions in world space, for drift smoke emission.
+  getRearWheelWorldPositions(): THREE.Vector3[] {
+    return WHEEL_DEFS.flatMap((def, i) => {
+      if (def.isFront) return [];
+      const connection = this.vehicle.wheelChassisConnectionPointCs(i)!;
+      const suspensionLength = this.vehicle.wheelSuspensionLength(i) ?? SUSPENSION_REST_LENGTH;
+      const localPos = new THREE.Vector3(
+        connection.x,
+        connection.y - suspensionLength - WHEEL_RADIUS * 0.5,
+        connection.z
+      );
+      return [localPos.applyQuaternion(this.chassisMesh.quaternion).add(this.chassisMesh.position)];
+    });
   }
 
   applyResistance(dt: number): void {
@@ -168,9 +255,13 @@ export class Car {
     this.chassisBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
-  update(): void {
+  // Runs the vehicle controller (suspension raycasts + wheel forces) for one fixed
+  // physics step. Must be called once per world.step(), not per render frame.
+  stepVehicle(): void {
     this.vehicle.updateVehicle(this.world.timestep);
+  }
 
+  update(): void {
     const translation = this.chassisBody.translation();
     const rotation = this.chassisBody.rotation();
     this.chassisMesh.position.set(translation.x, translation.y, translation.z);

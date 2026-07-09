@@ -24,6 +24,43 @@ export function engineForceForSpeed(speed: number, throttle: number): number {
   return MAX_ENGINE_FORCE * factor * throttle;
 }
 
+// Reverse: pressing brake while (nearly) stopped or already rolling backward engages
+// reverse drive instead of braking, capped at a walking-pace top speed.
+const REVERSE_ENGINE_FORCE = 450;
+const REVERSE_TOP_SPEED = 9;
+const REVERSE_ENGAGE_SPEED = 0.8;
+const MAX_BRAKE_FORCE = 40;
+
+export interface DriveCommand {
+  engineForce: number;
+  brakeForce: number;
+}
+
+// Maps throttle/brake pedals plus the signed forward speed to engine and brake forces.
+// Throttle always drives forward; brake acts as a brake while moving forward and as
+// reverse drive once the car is (nearly) stopped or moving backward.
+export function driveCommandForInput(
+  signedSpeed: number,
+  throttle: number,
+  brake: number
+): DriveCommand {
+  if (throttle > 0) {
+    return { engineForce: engineForceForSpeed(signedSpeed, throttle), brakeForce: 0 };
+  }
+
+  if (brake > 0) {
+    if (signedSpeed > REVERSE_ENGAGE_SPEED) {
+      return { engineForce: 0, brakeForce: brake * MAX_BRAKE_FORCE };
+    }
+    if (signedSpeed <= -REVERSE_TOP_SPEED) {
+      return { engineForce: 0, brakeForce: 0 };
+    }
+    return { engineForce: -REVERSE_ENGINE_FORCE * brake, brakeForce: 0 };
+  }
+
+  return { engineForce: 0, brakeForce: 0 };
+}
+
 // Steering angle (radians) scales down from MAX_STEER_ANGLE at standstill to
 // MIN_STEER_ANGLE by STEER_SPEED_FALLOFF speed, so the car doesn't snap-turn at speed.
 const MAX_STEER_ANGLE = 0.5;

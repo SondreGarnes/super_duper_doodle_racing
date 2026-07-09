@@ -53,6 +53,16 @@ describe('LapTimer', () => {
     expect(timer.getElapsedMs(10000)).toBe(2000);
   });
 
+  it('does not finish when checkpoints are incomplete', () => {
+    const timer = new LapTimer();
+    timer.start(0);
+    timer.update(1000, 0.98, false);
+    timer.update(2000, 0.0, false);
+    expect(timer.isFinished()).toBe(false);
+    timer.update(3000, 0.0, true);
+    expect(timer.isFinished()).toBe(true);
+  });
+
   it('reset() returns to the not-started state', () => {
     const timer = new LapTimer();
     timer.start(0);
