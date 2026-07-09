@@ -26,6 +26,12 @@ const PRINCIPAL_ANGULAR_INERTIA = {
 const ROLLING_RESISTANCE_COEFF = 6; // N per (m/s)
 const DRAG_COEFF = 0.5; // N per (m/s)^2
 
+// Additional resistance while off the road: grass caps the car around 12 m/s,
+// so cutting across it never beats staying on the asphalt. Sized against the
+// full drivetrain output (~700 N per rear wheel, 1400 N total).
+const GRASS_ROLLING_COEFF = 60;
+const GRASS_DRAG_COEFF = 4;
+
 interface WheelDef {
   position: RAPIER.Vector3;
   isFront: boolean;
@@ -233,12 +239,14 @@ export class Car {
     });
   }
 
-  applyResistance(dt: number): void {
+  applyResistance(dt: number, onGrass = false): void {
     const vel = this.chassisBody.linvel();
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
     if (speed < 1e-4) return;
 
-    const resistanceForce = ROLLING_RESISTANCE_COEFF * speed + DRAG_COEFF * speed * speed;
+    const rolling = ROLLING_RESISTANCE_COEFF + (onGrass ? GRASS_ROLLING_COEFF : 0);
+    const drag = DRAG_COEFF + (onGrass ? GRASS_DRAG_COEFF : 0);
+    const resistanceForce = rolling * speed + drag * speed * speed;
     const impulseMag = -resistanceForce * dt;
     const dirX = vel.x / speed;
     const dirZ = vel.z / speed;

@@ -3,16 +3,18 @@ import { createPhysicsWorld, FixedTimestepAccumulator } from './physics';
 import { createRoad, getSpawnTransform } from './world/road';
 import { createScenery } from './world/scenery';
 import { createCheckpointGates, createStartGantry } from './world/checkpointGates';
-import { getTrackProgress } from './world/trackProgress';
+import { getTrackLocation } from './world/trackProgress';
 import { InputState } from './car/input';
 import { Car } from './car/car';
 import { ChaseCamera } from './camera/chaseCamera';
 import { LapTimer } from './game/lapTimer';
 import { CheckpointTracker } from './game/checkpoints';
 import { DriftBoost, isDriftInput } from './game/driftBoost';
+import { isOffRoad } from './game/offRoad';
 import { GhostRecorder, ghostPoseAt, GhostPose } from './game/ghost';
 import { loadBestLap, recordLapIfBest } from './game/bestLap';
 import { TimerDisplay, createControlsHint } from './ui/timerDisplay';
+import { OffRoadWarning } from './ui/offRoadWarning';
 import { ResultsOverlay } from './ui/resultsOverlay';
 import { BoostHud } from './ui/boostHud';
 import { Speedometer } from './ui/speedometer';
@@ -51,6 +53,7 @@ async function main() {
   const speedometer = new Speedometer();
   const minimap = new Minimap(curve, CHECKPOINT_FRACTIONS);
   const driftSmoke = new DriftSmoke(scene);
+  const offRoadWarning = new OffRoadWarning();
   const ghostRig = new GhostRig(scene);
   const ghostRecorder = new GhostRecorder();
   const engineSound = new EngineSound();
@@ -110,12 +113,15 @@ async function main() {
       isDriftInput(input.handbrake, input.steer, car.getSignedSpeed(), driftBoost.isDrifting())
     );
 
+    const location = getTrackLocation(curve, car.getChassisWorldPosition());
+    const onGrass = isOffRoad(location.distance);
+
     accumulator.tick(deltaSeconds, () => {
       car.applyInput(input, driftBoost.isDrifting());
       if (driftBoost.isBoosting()) {
         car.applyBoost(FIXED_DT);
       }
-      car.applyResistance(FIXED_DT);
+      car.applyResistance(FIXED_DT, onGrass);
       car.stepVehicle();
       world.step();
     });
@@ -150,7 +156,8 @@ async function main() {
 
     chaseCamera.update(car.getChassisWorldPosition(), car.getChassisWorldQuaternion(), deltaSeconds);
 
-    const progress = getTrackProgress(curve, car.getChassisWorldPosition());
+    offRoadWarning.update(onGrass);
+    const progress = location.progress;
     if (lapTimer.isRunning()) {
       checkpoints.update(progress);
       CHECKPOINT_FRACTIONS.forEach((_, i) => gates[i].setPassed(checkpoints.isPassed(i)));

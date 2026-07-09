@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { getTrackProgress } from '../src/world/trackProgress';
+import { getTrackProgress, getTrackLocation } from '../src/world/trackProgress';
 
 function makeTestCurve(): THREE.CatmullRomCurve3 {
   return new THREE.CatmullRomCurve3(
@@ -35,5 +35,25 @@ describe('getTrackProgress', () => {
     const target = curve.getPointAt(0.98);
     const progress = getTrackProgress(curve, target);
     expect(progress).toBeGreaterThan(0.9);
+  });
+});
+
+describe('getTrackLocation', () => {
+  it('reports near-zero distance for a point on the centerline', () => {
+    const curve = makeTestCurve();
+    const { distance } = getTrackLocation(curve, curve.getPointAt(0.37));
+    expect(distance).toBeLessThan(0.3);
+  });
+
+  it('reports the lateral offset for a point beside the track', () => {
+    const curve = makeTestCurve();
+    const point = curve.getPointAt(0.4);
+    const tangent = curve.getTangentAt(0.4);
+    const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const offset = point.clone().addScaledVector(normal, 6);
+    const { distance, progress } = getTrackLocation(curve, offset);
+    expect(distance).toBeGreaterThan(5.3);
+    expect(distance).toBeLessThan(6.7);
+    expect(progress).toBeCloseTo(0.4, 1);
   });
 });
